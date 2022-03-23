@@ -26,7 +26,7 @@ except ImportError:
 class Env(BaseClass):
     def __init__(
         self,
-        level=6,
+        level=3,
         area=(64, 64),
         view=(9, 9),
         size=(64, 64),
@@ -37,6 +37,14 @@ class Env(BaseClass):
         view = np.array(view if hasattr(view, "__len__") else (view, view))
         size = np.array(size if hasattr(size, "__len__") else (size, size))
         seed = np.random.randint(0, 2 ** 31 - 1) if seed is None else seed
+        assert level in [1, 2, 3, 4], "only support level in [1, 2, 3, 4]."
+        """
+        level:
+        - 1: no health, no die, no enemy
+        - 2: health, no die, no enemy
+        - 3: health, die, no enemy
+        - 4: health, die, enemy (original)
+        """
         self.level = level
         self._area = area
         self._view = view
@@ -94,7 +102,16 @@ class Env(BaseClass):
         self._world.add(self._player)
         self._unlocked = set()
         worldgen.generate_world(self._world, self._player)
-        return self._obs()
+
+        info = {
+            "inventory": self._player.inventory.copy(),
+            "achievements": self._player.achievements.copy(),
+            "discount": 1,
+            "semantic": self._sem_view(),
+            "player_pos": self._player.pos,
+            "reward": 0,
+        }
+        return self._obs(), info
 
     def step(self, action):
         self._step += 1
@@ -110,7 +127,10 @@ class Env(BaseClass):
                 # if self._player.distance(center) < 4 * max(self._view):
                 self._balance_chunk(chunk, objs)
         obs = self._obs()
-        reward = (self._player.health - self._last_health) / 10
+        if self.level in [1]:
+            reward = 0
+        else:
+            reward = (self._player.health - self._last_health) / 10
         self._last_health = self._player.health
         unlocked = {
             name
@@ -120,11 +140,9 @@ class Env(BaseClass):
         if unlocked:
             self._unlocked |= unlocked
             reward += 1.0
-        if self.level in [7]:
-            reward += 0.02
         dead = self._player.health <= 0
         over = self._length and self._step >= self._length
-        if self.level in [1]:
+        if self.level in [1, 2]:
             done = over
         else:
             done = dead or over
@@ -163,7 +181,7 @@ class Env(BaseClass):
 
     def _balance_chunk(self, chunk, objs):
         light = self._world.daylight
-        if self.level in [1, 3, 4, 5, 6]:
+        if self.level in [4]:
             self._balance_object(
                 chunk,
                 objs,
@@ -179,7 +197,7 @@ class Env(BaseClass):
                     3.5 - 3 * light,
                 ),
             )
-        if self.level in [1, 2, 4, 5, 6]:
+        if self.level in [4]:
             self._balance_object(
                 chunk,
                 objs,
